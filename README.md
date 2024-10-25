@@ -21,3 +21,5 @@ Go back to "keys and credeitnals" (if your key doesnt automatically populate) an
 Step 6:
 Copy that key after loading the repo into the IDE of your choice and set the key varaible equal to that new key surrounded in single quotes: 'key'
 
+
+<img width="1512" alt="Screenshot 2024-10-25 at 7 02 41 PM" src="https://github.com/user-attachments/assets/37ba3595-68db-4d9a-8442-0523ead6c5d1">
