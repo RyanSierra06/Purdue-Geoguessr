@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Purdue Geoguessr</title>
+  <style>
+    html,body {
+      background-image: url('Gateway.jpg');
+      background-position: center;
+      background-repeat: no-repeat;
+      background-size: cover;
+      overflow: hidden;
+      height: 100%;
+    }
+    #layout {
+      display: flex;
+      justify-content: space-between;
+      height: 60vh;
+    }
+    #street-view {
+      width: 60vw;
+      height: 100%;
+    }
+    #mini-map {
+      width: 60vw;
+      height: 100%;
+    }
+    .custom-control {
+      background-color: white;
+      border: 2px solid #fff;
+      border-radius: 3px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      cursor: pointer;
+      font-size: 14px;
+      margin: 10px;
+      padding: 5px 10px;
+      position: absolute;
+      z-index: 1;
+    }
+    #submit-location-button { top: 10px; left: 10px; }
+    #next-location-button { top: 10px; right: 10px; }
+    #refresh-view-button { top: 50px; right: 10px; }
+    #end-game-button {
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+    }
+    #round-counter {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 16px;
+      font-weight: bold;
+      background-color: white;
+      padding: 5px 10px;
+      border: 2px solid #fff;
+      border-radius: 3px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      z-index: 1;
+    }
+
+    #purdue-image {
+      position: fixed;
+      bottom: 5vh;
+      left: 50.5%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      width: 15vw;
+      height: auto;
+    }
+
+    #geoguessr-pin {
+      position: fixed;
+      bottom: 5vh;
+      left: 50.5%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      width: 15vw;
+      height: auto;
+    }
+
+  </style>
+</head>
+<body>
+<div id="layout">
+  <div id="street-view"></div>
+  <div id="mini-map"></div>
+</div>
+
+<button class="custom-control" id="submit-location-button">Submit Location</button>
+<button class="custom-control" id="next-location-button" disabled>Next Location</button>
+<button class="custom-control" id="end-game-button">End Game</button>
+<button class="custom-control" id="refresh-view-button">Refresh View</button>
+<div id="round-counter">Round 1</div>
+
+<img id="purdue-image" src="Purdue-University-Logo.png">
+<img id="geoguessr-pin" src="GeoGuessr_logo.svg.png">
+
+
+<script>
+  let miniMap;
+  let marker = null;
+  let markerCoordinates = null;
+  let panorama;
+  let roundScore = 5000;
+  let finalScore = 0;
+  let greenMarker = null;
+  let clickCount = 0;
+  let currentRound = 1;
+  let key = 'AIzaSyD-Wawlj-Aw8x6c129BxW1d79_UKsrNUSg'; // Add your Google Maps API key here
+
+  function haversineDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const rad = Math.PI / 180;
+    const dLat = (lat2 - lat1) * rad;
+    const dLon = (lon2 - lon1) * rad;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 1000);
+  }
+
+  function scoreCounter(havDis) {
+    let currentRoundScore = roundScore;
+    while (havDis >= 50) {
+      currentRoundScore -= 150;
+      havDis -= 50;
+    }
+    return currentRoundScore;
+  }
+
+  function randomLatitude() {
+    return 40.429618 + (Math.random() - 0.5) * 0.009;
+  }
+
+  function randomLongitude() {
+    return -86.918109 + (Math.random() - 0.5) * 0.009;
+  }
+
+  function updateRoundCounter() {
+    document.getElementById('round-counter').textContent = `Round ${currentRound}`;
+  }
+
+  function initStreetViewAndMap() {
+    let location = { lat: randomLatitude(), lng: randomLongitude() };
+
+    miniMap = new google.maps.Map(document.getElementById('mini-map'), {
+      center: location,
+      zoom: 15,
+      mapTypeId: 'roadmap',
+      streetViewControl: false,
+      mapTypeControl: false,
+    });
+
+    miniMap.addListener('click', function(event) {
+      placeMarker(event.latLng);
+    });
+
+    panorama = new google.maps.StreetViewPanorama(document.getElementById('street-view'), {
+      position: location,
+      pov: { heading: 165, pitch: 0 },
+      zoom: 1,
+      addressControl: false,
+      linksControl: false,
+      panControl: true,
+      disableDefaultUI: true,
+      gestureHandling: 'none'
+    });
+
+    google.maps.event.addListenerOnce(panorama, 'visible_changed', function() {
+      if (!panorama.getVisible()) {
+        alert('Street View is not available for this location. Re-trying...');
+        let newLocation = { lat: randomLatitude(), lng: randomLongitude() };
+        panorama.setPosition(newLocation);
+      }
+    });
+
+    miniMap.setStreetView(panorama);
+
+    document.getElementById('submit-location-button').addEventListener('click', function() {
+      if (marker) {
+        if (this.disabled) return;
+        clickCount++;
+
+        if (greenMarker) greenMarker.setMap(null);
+
+        const currentLocation = panorama.getPosition();
+
+        greenMarker = new google.maps.Marker({
+          position: currentLocation,
+          map: miniMap,
+          icon: { url: 'http://maps.google.com/mapfiles/ms/icons/green-dot.png', scaledSize: new google.maps.Size(40, 40) },
+          title: 'Actual Location'
+        });
+
+        markerCoordinates = marker.getPosition();
+
+        const havDis = haversineDistance(markerCoordinates.lat(), markerCoordinates.lng(), currentLocation.lat(), currentLocation.lng());
+
+        finalScore += scoreCounter(havDis);
+        alert('Location submitted!\nYou were ' + havDis + ' meters away\n' + 'Your current round score is: ' + scoreCounter(havDis));
+
+        miniMap.setZoom(15);
+
+        document.getElementById('next-location-button').disabled = false;
+        this.disabled = true;
+
+        if (clickCount === 5) {
+          document.getElementById('refresh-view-button').disabled = true;
+          document.getElementById('round-counter').style.display = 'none';
+          document.getElementById('submit-location-button').disabled = true;
+          document.getElementById('next-location-button').disabled = true;
+          document.getElementById('end-game-button').style.display = 'block';
+        }
+      } else {
+        alert('No marker placed.');
+      }
+    });
+
+    document.getElementById('next-location-button').addEventListener('click', function() {
+      if (clickCount < 5) {
+        currentRound++;
+        updateRoundCounter();
+
+        let newLocation = { lat: randomLatitude(), lng: randomLongitude() };
+        miniMap.setCenter(newLocation);
+        panorama.setPosition(newLocation);
+
+        if (marker) {
+          marker.setMap(null);
+          marker = null;
+        }
+
+        if (greenMarker) {
+          greenMarker.setMap(null);
+          greenMarker = null;
+        }
+
+        roundScore = 5000;
+        this.disabled = true;
+        document.getElementById('submit-location-button').disabled = false;
+        miniMap.setZoom(15);
+
+      }
+    });
+
+    document.getElementById('end-game-button').addEventListener('click', function() {
+      alert("All 5 rounds have elapsed!\nYour final score is: " + finalScore + '/25000');
+      clickCount = 0;
+      finalScore = 0;
+      roundScore = 5000;
+      currentRound = 1;
+
+      document.getElementById('end-game-button').style.display = 'none';
+      document.getElementById('submit-location-button').disabled = false;
+      document.getElementById('next-location-button').disabled = true;
+      document.getElementById('round-counter').style.display = 'block';
+      updateRoundCounter();
+
+      let resetLocation = { lat: randomLatitude(), lng: randomLongitude() };
+      miniMap.setCenter(resetLocation);
+      panorama.setPosition(resetLocation);
+
+      if (marker) {
+        marker.setMap(null);
+        marker = null;
+      }
+
+      if (greenMarker) {
+        greenMarker.setMap(null);
+        greenMarker = null;
+      }
+    });
+
+    document.getElementById('refresh-view-button').addEventListener('click', function() {
+      if (clickCount < 5) {
+        let newLocation = { lat: randomLatitude(), lng: randomLongitude() };
+
+        miniMap.setCenter(newLocation);
+        panorama.setPosition(newLocation);
+
+        if (marker) {
+          marker.setMap(null);
+          marker = null;
+        }
+
+        if (greenMarker) {
+          greenMarker.setMap(null);
+          greenMarker = null;
+        }
+
+        roundScore = 5000;
+
+        document.getElementById('submit-location-button').disabled = false;
+        document.getElementById('next-location-button').disabled = true;
+
+        alert("View has been refreshed. Starting a new round!");
+      }
+    });
+
+  }
+
+  function placeMarker(location) {
+    if (marker) marker.setMap(null);
+    marker = new google.maps.Marker({ position: location, map: miniMap, title: 'Pinned Location' });
+    marker.addListener('dblclick', function() {
+      marker.setMap(null);
+      marker = null;
+    });
+  }
+
+  function loadGoogleMapsAPI() {
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&callback=initStreetViewAndMap`;
+    script.async = true;
+    script.defer = true;
+    document.head.appendChild(script);
+  }
+
+  window.addEventListener('load', loadGoogleMapsAPI);
+</script>
+</body>
+</html>
