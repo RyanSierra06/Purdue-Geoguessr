@@ -1,6 +1,6 @@
 # Purdue-Geoguessr
 
-This program runs on a local host and you musty get your own google maps API key in order to run this program. In order to get the API key please use the following instructions.
+This program runs on a local host, in an IDE of your choice (I used WebStorm), and you must get your own google maps API key in order to run this program. In order to get a Google Maps API key please use the following instructions.
 
 Step 1:
 Go to this link: https://mapsplatform.google.com and press "get started" on the top right of the screen
